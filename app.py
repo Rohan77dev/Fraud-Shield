@@ -4,12 +4,12 @@ import smtplib
 from email.mime.text import MIMEText
 import random
 import time
-import pyttsx3
+import os
 
 # ---------------- CONFIG ----------------
 APP_NAME = "🛡️ Fraud Shield"
 
-DEFAULT_BANKS = {
+BANKS = {
     "MCB": "mcb@email.com",
     "SBM": "sbm@email.com",
     "ABSA": "absa@email.com"
@@ -20,9 +20,9 @@ CYBER_CRIME_EMAIL = "cybercrime@gov.mu"
 SENDER_EMAIL = "your_email@gmail.com"
 SENDER_PASSWORD = "your_app_password"
 
-RATE_LIMIT_SECONDS = 60  # prevent spam
+RATE_LIMIT_SECONDS = 60
 
-# ---------------- SESSION INIT ----------------
+# ---------------- SESSION STATE ----------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -30,16 +30,10 @@ if "otp" not in st.session_state:
     st.session_state.otp = None
 
 if "banks" not in st.session_state:
-    st.session_state.banks = DEFAULT_BANKS.copy()
+    st.session_state.banks = BANKS.copy()
 
 if "last_sent" not in st.session_state:
     st.session_state.last_sent = 0
-
-# ---------------- TTS ENGINE ----------------
-def speak(text):
-    engine = pyttsx3.init()
-    engine.say(text)
-    engine.runAndWait()
 
 # ---------------- EMAIL FUNCTION ----------------
 def send_email(message, bank_email):
@@ -65,14 +59,14 @@ st.title(APP_NAME)
 # ---------------- LOGIN ----------------
 if not st.session_state.logged_in:
 
-    st.subheader("Login")
+    st.subheader("Login (+230)")
 
-    phone = st.text_input("Phone Number (+230)")
+    phone = st.text_input("Phone number")
 
     if st.button("Send OTP"):
         otp = random.randint(1000, 9999)
         st.session_state.otp = str(otp)
-        st.success(f"OTP (demo): {otp}")
+        st.success(f"OTP (demo only): {otp}")
 
     user_otp = st.text_input("Enter OTP")
 
@@ -80,49 +74,50 @@ if not st.session_state.logged_in:
         if user_otp == st.session_state.otp:
             st.session_state.logged_in = True
             st.session_state.phone = phone
-            st.success("Logged in")
+            st.success("Logged in successfully")
         else:
             st.error("Invalid OTP")
 
     st.stop()
 
-# ---------------- MAIN APP ----------------
-st.subheader("🎤 Record Complaint")
+# ---------------- AUDIO UPLOAD ----------------
+st.subheader("🎤 Upload Voice Message")
 
-if st.button("Start Recording"):
-    r = sr.Recognizer()
+audio_file = st.file_uploader("Upload audio file (WAV recommended)", type=["wav"])
 
-    with sr.Microphone() as source:
-        st.info("Speak now...")
-        audio = r.listen(source)
+if audio_file is not None:
 
-        try:
-            text = r.recognize_google(audio)
-            st.session_state.text = text
-            st.success("Recording complete")
+    with open("temp.wav", "wb") as f:
+        f.write(audio_file.read())
 
-            speak("Your message has been recorded")
+    recognizer = sr.Recognizer()
 
-        except:
-            st.error("Could not understand audio")
+    try:
+        with sr.AudioFile("temp.wav") as source:
+            audio_data = recognizer.record(source)
+
+        text = recognizer.recognize_google(audio_data)
+
+        st.session_state.text = text
+
+        st.success("Speech converted successfully")
+
+    except Exception as e:
+        st.error("Could not process audio")
+        st.write(e)
 
 # ---------------- SHOW TEXT ----------------
 if "text" in st.session_state:
     st.subheader("Captured Message")
     st.write(st.session_state.text)
 
-    if st.button("🔊 Play Message"):
-        speak(st.session_state.text)
+    st.info("No editing allowed. Please confirm below.")
 
 # ---------------- CONFIRMATION ----------------
-confirm = st.radio(
-    "Confirm message?",
-    ["Yes - Send", "No - Record Again"]
-)
+confirm = st.radio("Confirm message", ["Send", "Record Again"])
 
-if confirm == "No - Record Again":
+if confirm == "Record Again":
     st.session_state.pop("text", None)
-    st.warning("Please record again")
     st.stop()
 
 # ---------------- BANK SELECTION ----------------
@@ -136,57 +131,51 @@ selected_bank = st.selectbox(
 # ---------------- SEND ----------------
 if st.button("Send Report"):
 
-    # Rate limiting
     if time.time() - st.session_state.last_sent < RATE_LIMIT_SECONDS:
-        st.error("Please wait before sending another report")
+        st.error("Wait before sending another report")
         st.stop()
 
     if "text" not in st.session_state:
-        st.warning("Record first")
+        st.warning("No message found")
         st.stop()
 
     message = f"""
-    FRAUD REPORT
+FRAUD REPORT
 
-    Phone: {st.session_state.phone}
-    Bank: {selected_bank}
-
-    Message:
-    {st.session_state.text}
-    """
+Phone: {st.session_state.phone}
+Message:
+{st.session_state.text}
+"""
 
     send_email(message, st.session_state.banks[selected_bank])
 
     st.session_state.last_sent = time.time()
 
-    st.success("Report sent successfully")
+    st.success("Report sent to bank + cybercrime unit")
 
-# ---------------- ADMIN PANEL ----------------
+# ---------------- ADMIN ----------------
 st.sidebar.title("Admin Panel")
 
-admin_mode = st.sidebar.checkbox("Enable Admin")
+admin = st.sidebar.checkbox("Enable Admin")
 
-if admin_mode:
+if admin:
+    password = st.sidebar.text_input("Password", type="password")
 
-    password = st.sidebar.text_input("Admin Password", type="password")
-
-    if password == "admin123":  # change later!
+    if password == "admin123":
 
         st.sidebar.success("Admin Access")
 
-        st.sidebar.subheader("Edit Bank Emails")
-
         for bank in st.session_state.banks:
             new_email = st.sidebar.text_input(
-                f"{bank} Email",
+                bank,
                 value=st.session_state.banks[bank]
             )
             st.session_state.banks[bank] = new_email
 
     else:
-        st.sidebar.error("Wrong password")
+        st.sidebar.warning("Wrong password")
 
 # ---------------- LOGOUT ----------------
 if st.button("Logout"):
     st.session_state.clear()
-    st.session_state.logged_in = False
+    st.rerun()
